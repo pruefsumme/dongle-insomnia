@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep USB-C Dongle Awake (Insomnia)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/keep-alive.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
