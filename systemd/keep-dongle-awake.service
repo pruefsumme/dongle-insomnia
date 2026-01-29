@@ -1,0 +1,31 @@
+[Unit]
+Description=Keep USB Ethernet dongle awake (periodic ping)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+# Optional config file:
+#   TARGET=1.1.1.1
+#   INTERFACE=enp0s20f0u2
+#   INTERVAL=1
+#   TIMEOUT=1
+EnvironmentFile=-/etc/default/keep-dongle-awake
+ExecStart=/usr/local/bin/keep-dongle-awake.sh
+Restart=always
+RestartSec=2
+
+# Hardening (keep it compatible; no extra capabilities needed)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
