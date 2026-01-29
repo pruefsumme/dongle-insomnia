@@ -39,6 +39,12 @@ TARGET=1.1.1.1
 # Example: INTERFACE=enp0s20f0u2
 INTERFACE=
 
+# Keepalive method:
+#   auto: prefers local ARP keepalive when possible (recommended)
+#   arp:  ARP-only (local network, requires arping + INTERFACE)
+#   icmp: ICMP ping
+METHOD=auto
+
 # Seconds between pings
 INTERVAL=1
 

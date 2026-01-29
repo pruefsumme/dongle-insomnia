@@ -6,6 +6,7 @@ set -euo pipefail
 # Config via env vars or CLI args:
 #   TARGET   - IP/hostname to ping (default: default gateway, else 1.1.1.1)
 #   INTERFACE- Network interface to bind to (optional)
+#   METHOD   - Keepalive method: auto|icmp|arp (default: auto)
 #   INTERVAL - Seconds between pings (default: 1)
 #   TIMEOUT  - Ping timeout seconds (default: 1)
 #
@@ -16,6 +17,7 @@ set -euo pipefail
 
 TARGET="${TARGET:-}"
 INTERFACE="${INTERFACE:-}"
+METHOD="${METHOD:-auto}"
 INTERVAL="${INTERVAL:-1}"
 TIMEOUT="${TIMEOUT:-1}"
 
@@ -24,7 +26,7 @@ usage() {
 Usage: keep-dongle-awake.sh [--target <ip|host>] [--interface <ifname>] [--interval <seconds>] [--timeout <seconds>]
 
 Environment variables:
-  TARGET, INTERFACE, INTERVAL, TIMEOUT
+  TARGET, INTERFACE, METHOD, INTERVAL, TIMEOUT
 EOF
 }
 
@@ -34,6 +36,8 @@ while [[ $# -gt 0 ]]; do
       TARGET="$2"; shift 2 ;;
     --interface)
       INTERFACE="$2"; shift 2 ;;
+    --method)
+      METHOD="$2"; shift 2 ;;
     --interval)
       INTERVAL="$2"; shift 2 ;;
     --timeout)
@@ -60,9 +64,22 @@ if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 
+case "$METHOD" in
+  auto|icmp|arp) ;;
+  *)
+    echo "METHOD must be one of: auto|icmp|arp (got: $METHOD)" >&2
+    exit 2
+    ;;
+esac
+
 get_default_gw() {
   # Outputs the default gateway IP if present.
   ip -4 route show default 2>/dev/null | awk '{print $3; exit}'
+}
+
+get_default_gw_for_dev() {
+  local dev="$1"
+  ip -4 route show default dev "$dev" 2>/dev/null | awk '{print $3; exit}'
 }
 
 carrier_up() {
@@ -79,7 +96,14 @@ pick_target() {
   fi
 
   local gw
-  gw="$(get_default_gw || true)"
+  if [[ -n "$INTERFACE" ]]; then
+    gw="$(get_default_gw_for_dev "$INTERFACE" || true)"
+  else
+    gw=""
+  fi
+  if [[ -z "$gw" ]]; then
+    gw="$(get_default_gw || true)"
+  fi
   if [[ -n "$gw" ]]; then
     echo "$gw"
     return 0
@@ -88,7 +112,9 @@ pick_target() {
   echo "1.1.1.1"
 }
 
-PING_BIN="$(command -v ping)"
+PING_BIN="$(command -v ping || true)"
+ARPING_BIN="$(command -v arping || true)"
+
 if [[ -z "$PING_BIN" ]]; then
   echo "ping not found in PATH" >&2
   exit 1
@@ -99,7 +125,7 @@ log() {
   echo "[$(date -Is)] $*"
 }
 
-log "Starting keepalive (INTERFACE=${INTERFACE:-<auto>}, INTERVAL=${INTERVAL}s, TIMEOUT=${TIMEOUT}s)"
+log "Starting keepalive (METHOD=$METHOD, INTERFACE=${INTERFACE:-<none>}, INTERVAL=${INTERVAL}s, TIMEOUT=${TIMEOUT}s)"
 
 while true; do
   if [[ -n "$INTERFACE" ]]; then
@@ -112,11 +138,22 @@ while true; do
 
   tgt="$(pick_target)"
 
-  # Use -I only when an interface is specified.
-  if [[ -n "$INTERFACE" ]]; then
-    "$PING_BIN" -n -c 1 -W "$TIMEOUT" -I "$INTERFACE" "$tgt" >/dev/null 2>&1 || true
+  # Prefer a purely local keepalive when possible:
+  # - METHOD=arp (or auto with INTERFACE set) will use arping to the gateway if arping is available.
+  # - Otherwise, fall back to ICMP ping.
+  if [[ "$METHOD" == "arp" ]] || [[ "$METHOD" == "auto" && -n "$INTERFACE" && -n "$ARPING_BIN" ]]; then
+    if [[ -n "$INTERFACE" && -n "$ARPING_BIN" ]]; then
+      "$ARPING_BIN" -I "$INTERFACE" -c 1 "$tgt" >/dev/null 2>&1 || true
+    else
+      "$PING_BIN" -n -c 1 -W "$TIMEOUT" "$tgt" >/dev/null 2>&1 || true
+    fi
   else
-    "$PING_BIN" -n -c 1 -W "$TIMEOUT" "$tgt" >/dev/null 2>&1 || true
+    # Use -I only when an interface is specified.
+    if [[ -n "$INTERFACE" ]]; then
+      "$PING_BIN" -n -c 1 -W "$TIMEOUT" -I "$INTERFACE" "$tgt" >/dev/null 2>&1 || true
+    else
+      "$PING_BIN" -n -c 1 -W "$TIMEOUT" "$tgt" >/dev/null 2>&1 || true
+    fi
   fi
 
   sleep "$INTERVAL"
