@@ -81,6 +81,38 @@ list_ifaces() {
   (cd /sys/class/net && ls -1) | sed '/^lo$/d'
 }
 
+print_iface_menu() {
+  local -n _ifaces_ref="$1"
+  local i
+  for i in "${!_ifaces_ref[@]}"; do
+    local dev="${_ifaces_ref[$i]}"
+    local carrier
+    carrier="$(carrier_status "$dev")"
+    local state
+    state="$(link_state "$dev")"
+    local usb_hint=""
+    if is_usb_iface "$dev"; then
+      usb_hint=" usb"
+    fi
+    printf "  [%d] %s (state=%s, carrier=%s)%s\n" "$((i+1))" "$dev" "${state:-?}" "$carrier" "$usb_hint"
+  done
+  echo "  [0] none"
+}
+
+join_by() {
+  local delim="$1"; shift
+  local out=""
+  local item
+  for item in "$@"; do
+    if [[ -z "$out" ]]; then
+      out="$item"
+    else
+      out+="$delim$item"
+    fi
+  done
+  printf '%s' "$out"
+}
+
 prompt_iface() {
   local ifaces=()
   while IFS= read -r dev; do
@@ -96,22 +128,13 @@ prompt_iface() {
 
   bold "Select the interface for your USB Ethernet dongle (recommended)"
   echo "(Tip: unplug/plug the dongle and re-run to see which interface appears.)"
-  echo "You can enter a number, an interface name (e.g. enx...), or 'none'."
+  echo "You can enter a number, an interface name (e.g. enx...), 'none', or '?' to reprint choices."
   echo
 
-  local i
-  for i in "${!ifaces[@]}"; do
-    local dev="${ifaces[$i]}"
-    local carrier="$(carrier_status "$dev")"
-    local state="$(link_state "$dev")"
-    local usb_hint=""
-    if is_usb_iface "$dev"; then
-      usb_hint=" usb"
-    fi
-    printf "  [%d] %s (state=%s, carrier=%s)%s\n" "$((i+1))" "$dev" "${state:-?}" "$carrier" "$usb_hint"
-  done
-  echo "  [0] none"
-  echo
+  # Print the menu to stderr as well (helps when stdout is oddly buffered/hidden under sudo).
+  print_iface_menu ifaces | tee /dev/stderr
+  echo "Interfaces detected: $(join_by ', ' "${ifaces[@]}")" | tee /dev/stderr
+  echo | tee /dev/stderr
 
   local choice
   while true; do
@@ -123,6 +146,12 @@ prompt_iface() {
     fi
 
     case "${choice,,}" in
+      ?)
+      print_iface_menu ifaces | tee /dev/stderr
+      echo "Interfaces detected: $(join_by ', ' "${ifaces[@]}")" | tee /dev/stderr
+      echo | tee /dev/stderr
+      continue
+        ;;
       0|none)
       echo ""
       return 0
