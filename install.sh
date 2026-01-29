@@ -146,7 +146,7 @@ prompt_iface() {
     fi
 
     case "${choice,,}" in
-      ?)
+      \?)
       print_iface_menu ifaces | tee /dev/stderr
       echo "Interfaces detected: $(join_by ', ' "${ifaces[@]}")" | tee /dev/stderr
       echo | tee /dev/stderr
